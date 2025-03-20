@@ -2,16 +2,18 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "myapp:latest"
-        REGISTRY = "my-private-registry.com"
-        PRODUCTION_SERVER = "ubuntu@<Production-Server-IP>"
+        REGISTRY = "your-private-registry.com"
+        IMAGE_NAME = "your-app-image"
+        IMAGE_TAG = "latest"
+        PROD_SERVER = "ubuntu@<PRODUCTION_SERVER_IP>"
     }
 
     stages {
         stage('Build Docker Image') {
             steps {
                 script {
-                    sh 'docker build -t $REGISTRY/$IMAGE_NAME .'
+                    echo "🔨 Building Docker Image..."
+                    sh "docker build -t ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ."
                 }
             }
         }
@@ -19,31 +21,31 @@ pipeline {
         stage('Push to Private Registry') {
             steps {
                 script {
-                    sh 'docker login -u $DOCKER_USER -p $DOCKER_PASSWORD $REGISTRY'
-                    sh 'docker push $REGISTRY/$IMAGE_NAME'
+                    echo "📤 Pushing Image to Registry..."
+                    sh "docker login -u YOUR_USERNAME -p YOUR_PASSWORD ${REGISTRY}"
+                    sh "docker push ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
                 }
             }
         }
 
-        stage('Deploy on Production') {
+        stage('Deploy to Production') {
             steps {
-                script {
-                    sshagent(['jenkins-prod-key']) {
-                        sh '''
-                        ssh -o StrictHostKeyChecking=no $PRODUCTION_SERVER <<EOF
-                        docker pull $REGISTRY/$IMAGE_NAME
-                        docker stop myapp || true
-                        docker rm myapp || true
-                        docker run -d --name myapp -p 80:80 $REGISTRY/$IMAGE_NAME
-                        EOF
-                        '''
-                    }
+                sshagent(['jenkins-prod-key']) {
+                    sh """
+                    ssh -o StrictHostKeyChecking=no ${PROD_SERVER} '
+                        docker login -u YOUR_USERNAME -p YOUR_PASSWORD ${REGISTRY} &&
+                        docker pull ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} &&
+                        docker stop ${IMAGE_NAME} || true &&
+                        docker rm ${IMAGE_NAME} || true &&
+                        docker run -d -p 80:80 --name ${IMAGE_NAME} ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                    '
+                    """
                 }
             }
         }
     }
 
     triggers {
-        githubPush()
+        githubPush() // Triggers on every push
     }
 }
