@@ -1,0 +1,92 @@
+- name: Install Docker and Deploy Jenkins
+  hosts: cicd
+  become: yes
+  tasks:
+    - name: Install required packages
+      apt:
+        name: 
+          - docker.io
+          - docker-compose
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker service is started
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    - name: Ensure Jenkins home directory exists with correct permissions
+      file:
+        path: /var/jenkins_home
+        state: directory
+        owner: 1000
+        group: 1000
+        mode: '0775'
+
+    - name: Stop and remove existing Jenkins container (if any)
+      shell: |
+        docker ps -q --filter "name=jenkins" | grep -q . && docker stop jenkins && docker rm jenkins || true
+      ignore_errors: yes
+
+    - name: Fix permissions inside Jenkins home directory
+      command: chown -R 1000:1000 /var/jenkins_home
+
+    - name: Grant Docker access to Jenkins container
+      file:
+        path: /var/run/docker.sock
+        state: file
+        owner: ubuntu
+        group: docker
+        mode: '0666'
+
+    - name: Deploy Jenkins container with Docker access
+      docker_container:
+        name: jenkins
+        image: jenkins/jenkins:lts
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "8080:8080"
+          - "50000:50000"
+        volumes:
+          - "/var/jenkins_home:/var/jenkins_home"
+          - "/var/run/docker.sock:/var/run/docker.sock"  # Enables Docker access inside Jenkins
+
+    - name: Wait for Jenkins to initialize
+      pause:
+        seconds: 30
+
+    - name: Retrieve Jenkins initial admin password
+      command: cat /var/jenkins_home/secrets/initialAdminPassword
+      register: jenkins_password
+      failed_when: jenkins_password.rc != 0
+      changed_when: false
+
+    - name: Display Jenkins initial admin password
+      debug:
+        msg: "Jenkins Initial Admin Password: {{ jenkins_password.stdout }}"
+
+
+- name: Install Docker on Production
+  hosts: production
+  become: yes
+  tasks:
+    - name: Install required packages
+      apt:
+        name: 
+          - docker.io
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker service is started
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
