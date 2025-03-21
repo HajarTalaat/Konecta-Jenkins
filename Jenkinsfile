@@ -2,52 +2,51 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = "your-private-registry.com/your-app-image:latest"
-        PRODUCTION_SERVER = "ubuntu@<PRODUCTION_SERVER_IP>"
+        IMAGE_NAME = "myapp"
+        REGISTRY = "myregistry.com"
+        PROD_SERVER = "44.210.109.63"
+        SSH_KEY = "/var/jenkins_home/terraform-key.pem"
     }
 
     triggers {
-        githubPush()
+        githubPush() // Trigger on any push
     }
 
     stages {
         stage('Build Docker Image') {
             steps {
-                script {
-                    sh "docker build -t ${DOCKER_IMAGE} ."
-                }
+                sh "docker build -t $REGISTRY/$IMAGE_NAME:latest ."
             }
         }
 
-        stage('Push to Private Registry') {
+        stage('Push to Registry') {
             steps {
-                script {
-                    sh "docker push ${DOCKER_IMAGE}"
-                }
+                sh "docker push $REGISTRY/$IMAGE_NAME:latest"
             }
         }
 
         stage('Deploy to Production') {
             steps {
-                sshagent(['jenkins-prod-key']) {
+                sshagent(credentials: ['ssh-key']) {
                     sh """
-                        ssh -o StrictHostKeyChecking=no ${PRODUCTION_SERVER} '
-                        docker pull ${DOCKER_IMAGE} &&
-                        docker stop my-container || true &&
-                        docker rm my-container || true &&
-                        docker run -d --name my-container -p 80:80 ${DOCKER_IMAGE}'
+                    ssh -o StrictHostKeyChecking=no -i $SSH_KEY ubuntu@$PROD_SERVER <<EOF
+                    docker pull $REGISTRY/$IMAGE_NAME:latest
+                    docker stop myapp || true
+                    docker rm myapp || true
+                    docker run -d --name myapp -p 80:5000 $REGISTRY/$IMAGE_NAME:latest
+                    EOF
                     """
                 }
             }
         }
     }
-    
+
     post {
-        failure {
-            echo "❌ Deployment failed! Check the logs."
-        }
         success {
-            echo "✅ Deployment successful!"
+            echo 'Deployment successful!'
+        }
+        failure {
+            echo 'Deployment failed!'
         }
     }
 }
