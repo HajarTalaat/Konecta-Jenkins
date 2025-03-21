@@ -2,18 +2,19 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY = "your-private-registry.com"
-        IMAGE_NAME = "your-app-image"
-        IMAGE_TAG = "latest"
-        PROD_SERVER = "ubuntu@<PRODUCTION_SERVER_IP>"
+        DOCKER_IMAGE = "your-private-registry.com/your-app-image:latest"
+        PRODUCTION_SERVER = "ubuntu@<PRODUCTION_SERVER_IP>"
+    }
+
+    triggers {
+        githubPush()
     }
 
     stages {
         stage('Build Docker Image') {
             steps {
                 script {
-                    echo "🔨 Building Docker Image..."
-                    sh "docker build -t ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ."
+                    sh "docker build -t ${DOCKER_IMAGE} ."
                 }
             }
         }
@@ -21,9 +22,7 @@ pipeline {
         stage('Push to Private Registry') {
             steps {
                 script {
-                    echo "📤 Pushing Image to Registry..."
-                    sh "docker login -u YOUR_USERNAME -p YOUR_PASSWORD ${REGISTRY}"
-                    sh "docker push ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                    sh "docker push ${DOCKER_IMAGE}"
                 }
             }
         }
@@ -32,20 +31,23 @@ pipeline {
             steps {
                 sshagent(['jenkins-prod-key']) {
                     sh """
-                    ssh -o StrictHostKeyChecking=no ${PROD_SERVER} '
-                        docker login -u YOUR_USERNAME -p YOUR_PASSWORD ${REGISTRY} &&
-                        docker pull ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} &&
-                        docker stop ${IMAGE_NAME} || true &&
-                        docker rm ${IMAGE_NAME} || true &&
-                        docker run -d -p 80:80 --name ${IMAGE_NAME} ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
-                    '
+                        ssh -o StrictHostKeyChecking=no ${PRODUCTION_SERVER} '
+                        docker pull ${DOCKER_IMAGE} &&
+                        docker stop my-container || true &&
+                        docker rm my-container || true &&
+                        docker run -d --name my-container -p 80:80 ${DOCKER_IMAGE}'
                     """
                 }
             }
         }
     }
-
-    triggers {
-        githubPush() // Triggers on every push
+    
+    post {
+        failure {
+            echo "❌ Deployment failed! Check the logs."
+        }
+        success {
+            echo "✅ Deployment successful!"
+        }
     }
 }
